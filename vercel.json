@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/glow.js": {
+      "maxDuration": 60
+    }
+  }
+}
