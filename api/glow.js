@@ -11,7 +11,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const startRes = await fetch(
-      'https://api.replicate.com/v1/models/stability-ai/stable-diffusion-img2img/predictions',
+      'https://api.replicate.com/v1/models/stability-ai/sdxl/predictions',
       {
         method: 'POST',
         headers: {
@@ -29,12 +29,25 @@ module.exports = async function handler(req, res) {
             prompt_strength: 0.38,
             num_inference_steps: 30,
             guidance_scale: 7.5,
+            refine: 'no_refiner',
           },
         }),
       }
     );
 
-    const data = await startRes.json();
+    // Parse as text first so we can handle non-JSON errors cleanly
+    const text = await startRes.text();
+    let data;
+    try { data = JSON.parse(text); } catch {
+      return res.status(500).json({ error: `AI service returned unexpected response (${startRes.status})` });
+    }
+
+    // Check HTTP-level errors before anything else
+    if (!startRes.ok) {
+      const msg = data.detail || data.error || `API error ${startRes.status}`;
+      return res.status(500).json({ error: msg });
+    }
+
     if (data.error) throw new Error(data.error);
 
     // Prefer: wait may return a completed prediction immediately
@@ -43,9 +56,12 @@ module.exports = async function handler(req, res) {
       return res.json({ url });
     }
 
-    // Otherwise poll until done (up to ~50s)
+    // Poll until done (up to ~55 s)
     const pollUrl = data.urls?.get;
-    if (!pollUrl) throw new Error('No poll URL in response');
+    if (!pollUrl) {
+      // Surface the actual Replicate response so we can debug
+      return res.status(500).json({ error: `Unexpected API response: ${text.slice(0, 300)}` });
+    }
 
     for (let i = 0; i < 22; i++) {
       await new Promise((r) => setTimeout(r, 2500));
